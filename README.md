@@ -16,20 +16,3 @@ Extra: mientras lo montas con esas botas, el caballo no recibe daño de los bloq
 Es un mod solo de servidor: los jugadores que entren sin el mod instalado pueden conectarse
 igualmente. En un solo jugador, basta con ponerlo en tu carpeta `mods`.
 
-## Compilar
-
-Entra en la carpeta del loader que quieras y ejecuta:
-
-```
-./gradlew build        (Linux/macOS)
-gradlew.bat build      (Windows)
-```
-
-El `.jar` final queda en `build/libs/`. Cópialo a la carpeta `mods` de tu instancia.
-Para probar en desarrollo: `./gradlew runClient`.
-
-## Descargar los .jar ya compilados
-
-Cada vez que se sube un cambio, GitHub Actions compila ambas versiones.
-Ve a la pestaña **Actions** del repositorio, abre la última ejecución de **Build**
-y descarga los `.jar` en la sección **Artifacts**.
