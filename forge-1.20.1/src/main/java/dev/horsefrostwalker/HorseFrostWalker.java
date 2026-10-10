@@ -7,15 +7,15 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.horse.AbstractHorse;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.enchantment.FrostWalkerEnchantment;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.living.LivingAttackEvent;
-import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.LogicalSide;
 import net.minecraftforge.fml.common.Mod;
 
 /**
@@ -33,59 +33,64 @@ import net.minecraftforge.fml.common.Mod;
 public final class HorseFrostWalker {
     public static final String MOD_ID = "horsefrostwalker";
 
-    /** Ultima posicion de bloque procesada por caballo (igual que vanilla: solo al cambiar de bloque). */
-    private static final Map<AbstractHorse, BlockPos> LAST_POS = new WeakHashMap<>();
+    /**
+     * Ultima posicion de bloque procesada por cada jugador montado (vanilla solo
+     * aplica Paso helado al cambiar de bloque). Solo se toca desde el hilo del servidor.
+     */
+    private static final Map<Player, BlockPos> LAST_POS = new WeakHashMap<>();
 
     public HorseFrostWalker() {
     }
 
+    /**
+     * Se escucha el tick de los jugadores (pocos) en vez del de todas las entidades
+     * vivas del mundo, y se parte desde el jinete hacia su montura.
+     */
     @SubscribeEvent
-    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
-        if (!(event.getEntity() instanceof AbstractHorse horse)) return;
-        if (horse.level().isClientSide()) return;
+    public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        // Primero el lado: el mapa no debe tocarse desde el hilo del cliente.
+        if (event.phase != TickEvent.Phase.END || event.side != LogicalSide.SERVER) return;
+        Player player = event.player;
 
-        Player rider = getRider(horse);
-        if (rider == null || rider.isSpectator()) {
-            LAST_POS.remove(horse);
+        if (!(player.getVehicle() instanceof AbstractHorse horse)) {
+            if (!LAST_POS.isEmpty()) LAST_POS.remove(player);
             return;
         }
 
         BlockPos pos = horse.blockPosition();
-        if (pos.equals(LAST_POS.get(horse))) return; // vanilla solo actua al cambiar de bloque
-        LAST_POS.put(horse, pos);
+        if (pos.equals(LAST_POS.put(player, pos))) return; // sigue en el mismo bloque
 
-        int enchLevel = frostWalkerLevel(rider);
-        if (enchLevel > 0) {
-            // onEntityMoved ya comprueba que el caballo este en el suelo
-            FrostWalkerEnchantment.onEntityMoved(horse, horse.level(), pos, enchLevel);
+        int enchLevel = frostWalkerLevel(player);
+        if (enchLevel <= 0) return;
+
+        // Camellos con dos jinetes: solo actua el primero que lleve Paso helado,
+        // para no aplicar el efecto dos veces por bloque.
+        for (Entity passenger : horse.getPassengers()) {
+            if (passenger == player) break;
+            if (passenger instanceof Player other && frostWalkerLevel(other) > 0) return;
         }
+
+        // onEntityMoved ya comprueba que el caballo este en el suelo
+        FrostWalkerEnchantment.onEntityMoved(horse, horse.level(), pos, enchLevel);
     }
 
     /** Extra: igual que el jugador con Paso helado, el caballo no se quema con bloques de magma. */
     @SubscribeEvent
     public static void onHorseAttacked(LivingAttackEvent event) {
         if (!(event.getEntity() instanceof AbstractHorse horse)) return;
-        if (horse.level().isClientSide()) return;
         if (!event.getSource().is(DamageTypes.HOT_FLOOR)) return;
+        if (!horse.isVehicle() || horse.level().isClientSide()) return;
 
-        Player rider = getRider(horse);
-        if (rider != null && frostWalkerLevel(rider) > 0) {
-            event.setCanceled(true);
-        }
-    }
-
-    private static int frostWalkerLevel(Player rider) {
-        return EnchantmentHelper.getItemEnchantmentLevel(
-                Enchantments.FROST_WALKER, rider.getItemBySlot(EquipmentSlot.FEET));
-    }
-
-    private static Player getRider(AbstractHorse horse) {
-        LivingEntity controller = horse.getControllingPassenger();
-        if (controller instanceof Player p) return p;
-        // Burros/mulas/llamas sin silla: cualquier jugador montado cuenta igualmente
         for (Entity passenger : horse.getPassengers()) {
-            if (passenger instanceof Player p) return p;
+            if (passenger instanceof Player rider && frostWalkerLevel(rider) > 0) {
+                event.setCanceled(true);
+                return;
+            }
         }
-        return null;
+    }
+
+    private static int frostWalkerLevel(Player player) {
+        return EnchantmentHelper.getItemEnchantmentLevel(
+                Enchantments.FROST_WALKER, player.getItemBySlot(EquipmentSlot.FEET));
     }
 }
