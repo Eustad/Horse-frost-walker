@@ -37,3 +37,21 @@ jobs:
         with:
           name: horsefrostwalker-${{ matrix.project }}
           path: ${{ matrix.project }}/build/libs/*.jar
+
+  # Temporal: guarda los .jar en esta rama para poder descargarlos con git
+  commit-jars:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: jars
+      - name: Commit jars
+        run: |
+          mkdir -p out && find jars -name '*.jar' | while read f; do cp "$f" "out/$(basename "$(dirname "$f")" | sed 's/horsefrostwalker-//')-$(basename "$f")"; done
+          ls -la out
+          git config user.name github-actions && git config user.email github-actions@users.noreply.github.com
+          git add out && git commit -m "jars" && git push
